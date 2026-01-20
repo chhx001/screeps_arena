@@ -2,7 +2,7 @@
 import { getObjectsByPrototype } from 'game/utils';
 import { Creep, Flag } from 'game/prototypes';
 import { } from 'game/constants';
-import { ATTACK, CARRY, ERR_NOT_IN_RANGE, HEAL, WORK, MOVE, RANGED_ATTACK, RESOURCE_ENERGY, Source, StructureContainer, StructureSpawn, StructureTower, WALL_HITS_MAX, prototypes, GameObject, createConstructionSite, TOUGH, findPath, getTerrainAt, TERRAIN_WALL, ERR_NOT_ENOUGH_ENERGY, findInRange, getRange, findClosestByPath, searchPath, findClosestByRange } from 'game';
+import { ATTACK, CARRY, ERR_NOT_IN_RANGE, HEAL, WORK, MOVE, RANGED_ATTACK, RESOURCE_ENERGY, Source, StructureContainer, StructureSpawn, StructureTower, WALL_HITS_MAX, prototypes, GameObject, createConstructionSite, TOUGH, findPath, getTerrainAt, TERRAIN_WALL, ERR_NOT_ENOUGH_ENERGY, findInRange, getRange, findClosestByPath, searchPath, findClosestByRange, Resource } from 'game';
 
 /*
 1. scan map, find source
@@ -249,7 +249,76 @@ class Soldier extends Piece {
 	}
 }
 
-class Builder extends Worker {
+class Builder extends Soldier {
+	constructor(game, obj = null) {
+		super(game, obj)
+		this.attack_range = 0
+		this.target = undefined
+	}
+
+	static getBodyPartLv(level) {
+		switch (level) {
+			case 0:
+				return [WORK, MOVE, CARRY]
+		}
+	}
+
+	setTarget(target) {
+		this.target = target
+	}
+
+	build() {
+		if (this.target.exists) {
+			// if constructionsite still exists, try build it
+			// if not in range, move
+			// if not enough source, pickup source nearby in 5 steps
+			let err = this.obj.build(this.target)
+			if (err == ERR_NOT_IN_RANGE) {
+				this.moveTo(this.target)
+			} else (err == ERR_NOT_ENOUGH_ENERGY) {
+				let dropped_res = getObjectsByPrototype(Resource).filter(r => r.resourceType == RESOURCE_ENERGY)
+				if (dropped_res.length) {
+					let res_in_range = this.obj.findClosestByRange(dropped_res, 5)
+					if (res_in_range.length) {
+						if (this.obj.pickup(res_in_range[0]) == ERR_NOT_IN_RANGE) {
+							this.moveTo(res_in_range[0])
+						}
+					}
+				}
+			}
+		}
+	}
+}
+// carrier will carry source to builder, drop aside
+class Carrier extends Soldier {
+	constructor(game, obj = null) {
+		super(game, obj)
+		this.attack_range = 0
+		// carry-to target
+		this.target = undefined
+		// if more than this dropped resource in the world, return to the base
+		this.dropped_uppercap = 350
+		// can be spawn or the carry-to target
+		this.cur_target = undefined
+	}
+
+	static getBodyPartLv(level) {
+		let ret = []
+		switch (level) {
+			case 0:
+				return ret.concat(Array(6).fill(CARRY)).concat(Array(6).fill(MOVE))	
+		}
+	}
+
+	setTarget(target) {
+		this.target = target
+	}
+
+	carryTo() {
+		if (this.obj.store.get)
+
+	}
+
 
 }
 
@@ -522,6 +591,27 @@ class GroupCommon extends BattleGroup {
 		super(game)
 
 	}
+}
+
+// design for tower shoot, shoot remotely to enemies spawn policy
+class TowerShootDesigner extends ScreepGameBase {
+	constructor(game) {
+		super(game)
+		this.tower_limit = 2
+	}
+}
+
+class GroupBuild extends BattleGroup {
+	static team_standard = [
+		Builder, Builder
+	]
+	constructor(game) {
+		super(game)
+	}
+
+
+
+
 }
 
 class GroupFlager extends BattleGroup {
