@@ -23,6 +23,15 @@ class Group extends ScreepGameBase {
 		return this.spawn_list.length == 0
 	}
 
+	updateCustomList(l) {
+		if (died_list.length > 0) {
+			for (let i = l.length - 1; i >= 0; i --) {
+				if (!l[i].isAlive())
+					l.splice(i, 1)
+			}
+		}
+	}
+
 	supply() {
 		if (this.spawn_list.length == 0)
 			return
@@ -137,15 +146,33 @@ class GroupBuild extends BattleGroup {
 	]
 	constructor(game) {
 		super(game)
+		this.cluster = undefined
+		this.carrier_list = []
+		this.builder_list = []
 	}
 
-    bindDesigner(designer) {
-        this.designer = designer
-        designer.design()
+	intact() {
+		super.intact()
+		this.updateCustomList(this.carrier_list)
+		this.updateCustomList(this.builder_list)
+	}
+
+    bindCluster(cluster) {
+        this.cluster = cluster
+        cluster.design()
     }
 
     run() {
-        
+        if (!this.designer) {
+			console.log("Error: Designer not assigned")
+			return
+		}
+		this.designer.updateProgress()
+		
+		
+
+		
+		
     }
 
 

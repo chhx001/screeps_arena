@@ -36,6 +36,11 @@ class Piece extends ScreepGameBase {
 		return false
 	}
 
+	/* Alive but not spawning */
+	isAvail() {
+		return this.isAlive() && !this.isSpawning()
+	}
+
 	moveTo(target) {
 		if (target instanceof Piece)
 			this.obj.moveTo(target.obj)
@@ -207,6 +212,12 @@ class Builder extends Soldier {
 		}
 	}
 
+	bindGroup(group) {
+		super.bindGroup(group)
+		//scout report back to group
+		this.group.builder_list.push(this)
+	}
+
 	setTarget(target) {
 		this.target = target
 	}
@@ -254,11 +265,17 @@ class Carrier extends Soldier {
 		}
 	}
 
+	bindGroup(group) {
+		super.bindGroup(group)
+		//scout report back to group
+		this.group.carrier_list.push(this)
+	}
+
 	setTarget(target) {
 		this.target = target
 	}
 
-	carryTo() {
+	carry() {
 		// stop if energy on the map exceeds the uppercap
 		let energy_on_map = getObjectsByPrototype(Resource).filter(r => r.resourceType == RESOURCE_ENERGY).reduce((acc, r) => acc + r.amount, 0)
 		if (energy_on_map > this.dropped_uppercap) {
@@ -294,7 +311,6 @@ class Melee extends Soldier {
 	attack(target) {
 		if (this.obj.attack(target) == ERR_NOT_IN_RANGE) {
 			this.moveTo(target)
-			this.obj.attack(target)
 		}
 	}
 }
@@ -308,7 +324,6 @@ class Ranged extends Soldier {
 	attack(target) {
 		if (this.obj.rangedAttack(target) == ERR_NOT_IN_RANGE) {
 			this.moveTo(target)
-			this.obj.rangedAttack(target)
 		}
 	}
 }
@@ -320,7 +335,7 @@ class Scout extends Melee {
 	}
 
 	bindGroup(group) {
-		this.group = group
+		super.bindGroup(group)
 		//scout report back to group
 		this.group.scout_list.push(this)
 	}
@@ -478,10 +493,8 @@ class Tower extends Piece {
 	}
 
 	attack(target) {
-		if (this.obj.attack(target) == ERR_NOT_IN_RANGE) {
-			this.obj.attack(target)
-		}
+		return this.obj.attack(target)
 	}
 }
 
-export { Piece, Worker, Harvester, Soldier, Builder, Carrier, Melee, Ranged, Scout, Healer, Rider, Flager, Mage }
+export { Piece, Worker, Harvester, Soldier, Builder, Carrier, Melee, Ranged, Scout, Healer, Rider, Flager, Mage, Tower}
