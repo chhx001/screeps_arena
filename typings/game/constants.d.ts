@@ -54,15 +54,15 @@ declare module "game/constants" {
     export const OBSTACLE_OBJECT_TYPES;
 
     export const TOWER_ENERGY_COST = 10;
-    export const TOWER_RANGE = 50;
+    export const TOWER_RANGE = 20;
     export const TOWER_HITS = 3000;
-    export const TOWER_CAPACITY = 50;
-    export const TOWER_POWER_ATTACK = 150;
-    export const TOWER_POWER_HEAL = 100;
+    export const TOWER_CAPACITY = 10;
+    export const TOWER_POWER_ATTACK = 1000;
+    export const TOWER_POWER_HEAL = 600;
     export const TOWER_POWER_REPAIR = 200;
-    export const TOWER_OPTIMAL_RANGE = 5;
+    export const TOWER_OPTIMAL_RANGE = 1;
     export const TOWER_FALLOFF_RANGE = 20;
-    export const TOWER_FALLOFF = 0.75;
+    export const TOWER_FALLOFF = 1;
     export const TOWER_COOLDOWN = 10;
 
     export const BODYPART_COST;
@@ -102,4 +102,11 @@ declare module "game/constants" {
 
     export const SPAWN_ENERGY_CAPACITY = 1000;
     export const SPAWN_HITS = 3000;
+
+    export const EFF_CONSTRUCTION_BOOST = 'eff_construction_boost';
+    export const EFF_HEAL_BOOST = 'eff_heal_boost';
+    export const EFF_RANGED_ATTACK_BOOST = 'eff_ranged_attack_boost';
+    export const EFF_ATTACK_BOOST = 'eff_attack_boost';
+    export const EFF_WORK_BOOST = 'eff_work_boost';
+    export const EFF_MOVE_BOOST = 'eff_move_boost';
 }
