@@ -175,11 +175,11 @@ class Archer extends ArenaUnitExt {
         let enemies_in_range = findInRange(this, this.game.enemy_list, this.range)
         let policy = 0
         if (enemies_in_range.length > 0) {
-            policy = 1
+            policy = 0
             for (let e of enemies_in_range) {
                 let r = getRange(this, e)
                 if (r <= this.range - 1) {
-                    policy = 2
+                    policy = 1
                     // in this case, we leave the enemy, we attack this one instead
                     obj = e
                     break

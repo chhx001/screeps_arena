@@ -3,7 +3,7 @@ import { ArenaBase } from "./Base.mjs";
 import { Archer, Farmer, Healer, Tower, Warrior } from "./Units.mjs";
 import { Flag } from "game/prototypes/flag";
 import { debug, error, info, warn } from "./Utils.mjs";
-import { RANGED_ATTACK, ATTACK, ERR_NO_BODYPART, ERR_NOT_IN_RANGE, findClosestByPath, getRange, RESOURCE_ENERGY, StructureContainer, HEAL, MOVE, StructureTower } from "game";
+import { RANGED_ATTACK, ATTACK, ERR_NO_BODYPART, ERR_NOT_IN_RANGE, findClosestByPath, getRange, RESOURCE_ENERGY, StructureContainer, HEAL, MOVE, StructureTower, Creep } from "game";
 import { BodyPart } from "arena/season_2/capture_the_flag/basic/prototypes";
 
 class ArenaGroup extends ArenaBase {
@@ -80,12 +80,26 @@ class ArenaGroup extends ArenaBase {
 
     transferUnit(unit, to_group) {
         if (!to_group.needUnit(unit)) {
-            warn(`transfer unit ${unit.unit_type} failed as group ${this.constructor.name} does not need`)
-            return
+            warn(`transfer unit ${unit.unit_type} failed as group ${to_group.constructor.name} does not need`)
+            return false
         }
         if (this.removeUnit(unit)) {
             to_group.addUnit(unit)
+            unit.group = to_group
+            return true
         }
+        return false
+    }
+
+    mergeToGroup(to_group) {
+        let unit_index = 0
+        while (this.unit_list.length > unit_index) {
+            if (!this.transferUnit(this.unit_list[unit_index], to_group)) {
+                //warn(`Failed to merge Group ${this.constructor.name} to ${to_group.constructor.name} on unit ${this.unit_list[0].unit_type}`)
+                unit_index ++
+            }
+        }
+        return true
     }
 }
 
@@ -93,7 +107,7 @@ class ArenaGroup extends ArenaBase {
 class GroupGuard extends ArenaGroup {
     constructor(game) {
         super(game)
-        this.design_list = [Warrior, Warrior, Warrior, Healer, Healer, Healer, Farmer, Tower]
+        this.design_list = [Warrior, Warrior, Warrior, Healer, Healer, Farmer, Tower]
         this.warrior_list = []
         this.healer_list = []
         this.archer_list = []
@@ -129,6 +143,9 @@ class GroupGuard extends ArenaGroup {
 
     run() {
         super.run()
+        if (this.unit_list.length == 0) {
+            return
+        }
         // Tower search for enemies, attack or heal
         if (this.tower == undefined) {
             this.addUnit(this.game.base_tower)
@@ -192,11 +209,9 @@ class GroupSeeker extends ArenaGroup {
     constructor(game) {
         super(game)
         // Seeker, 1 WARRIOR, 1 ARCHER, 1 HEALER, 1 Farmer
-        this.design_list = [Warrior, Archer, Archer, Archer, Archer, Healer, Farmer, Tower]
+        this.design_list = [Warrior, Archer, Archer, Archer, Archer, Healer, Healer, Farmer, Tower]
         this.flag = undefined
         this.tower = undefined
-
-        this.archer_pick_heal_counter = 0
     }
 
     addUnit(unit) {
@@ -261,7 +276,7 @@ class GroupSeeker extends ArenaGroup {
         // Seeker search for body parts
         // rebalance move speed
         for (let c of this.unit_list) {
-            if (c instanceof StructureTower)    //no tower
+            if (c instanceof StructureTower || !c.exists)    //no tower
                 continue
             c.move_speed = 0
             for (let bp of c.body) {
@@ -284,29 +299,21 @@ class GroupSeeker extends ArenaGroup {
             if (bp.type == ATTACK) {
                 // no one like this except warrior
                 picker = this.picker_alive(this.warrior_list)
-            } else if (bp.type == RANGED_ATTACK){
-                // healer first for this
-                picker = this.picker_alive(this.healer_list, this.archer_list)
-            } else if (bp.type == HEAL) {
-                // archer first for this, but we pick archer one by one
-                // we don't expect archer to be all dead, it means we already lose
-                let archer_index = this.archer_pick_heal_counter % this.archer_list.length
-                picker = this.archer_list[archer_index]
-                if (!picker.exists) {
-                    // backup plan
-                    picker = this.picker_alive(this.archer_list)
+            } else if (bp.type == MOVE){
+                // let's see if warrior_giant or archer_giant who need this more
+                // check archer first, archer has higher priority
+                let archer_giant = this.picker_alive(this.archer_list)
+                let warrior_giant = this.picker_alive(this.warrior_list)
+                if (archer_giant && archer_giant.move_speed < 0) {
+                    picker = archer_giant
+                } else if (warrior_giant && warrior_giant.move_speed < 0) {
+                    picker = warrior_giant
+                } else {
+                    picker = (archer_giant) ? archer_giant : warrior_giant;
                 }
-                this.archer_pick_heal_counter ++;
-            } else if (bp.type == MOVE) {
-                for (let c of this.unit_list) {
-                    if (c.move_speed < 0) {
-                        picker = c
-                        break
-                    }
-                }
-                if (!picker) {
-                    picker = this.picker_alive(this.archer_list, this.healer_list)
-                }
+            } else {
+                // others are all give to the first archer
+                picker = this.picker_alive(this.archer_list)
             }
             if (picker) {
                 picker.target = bp
@@ -340,16 +347,161 @@ class GroupSeeker extends ArenaGroup {
 
     run_rush() {
         info("Seeker rush is not implemented")
+        this.run_arm()
     }
 
     run() {
         super.run()
+        if (this.unit_list.length == 0) {
+            return
+        }
         let tick = getTicks()
         if (tick < GroupSeeker.TICK_LIMIT)
             this.run_arm()
         else
             this.run_rush()
     }
+
+
+}
+
+class GroupRush extends ArenaGroup {
+    static TICK_LIMIT = 1200
+    constructor(game) {
+        super(game)
+        this.tick_limit = GroupRush.TICK_LIMIT
+        this.archer_giant = undefined
+        this.warrior_giant = undefined
+    }
+
+    needUnit(unit) {
+        // Rush Group reject everything before the limit tick
+        if (getTicks() < GroupRush.TICK_LIMIT)
+            return false
+        if (unit.ready == undefined)
+            return false
+        if (unit.unit_type == Farmer.name || unit.unit_type == Tower.name) {
+            return false    // do not need farmer
+        }
+        return true
+    }
+
+    addUnit(unit) {
+        if (super.addUnit(unit)) {
+            if ((unit instanceof Creep) && unit.body.length > 12) {
+                if (unit.unit_type == Archer.name) {
+                    this.archer_giant = unit
+                } else if (unit.unit_type == Warrior.name) {
+                    this.warrior_giant = unit
+                }
+            }
+            return true
+        }
+        return false
+    }
+
+    removeUnit(unit) {
+        if (super.removeUnit(unit)) {
+            if (unit == this.archer_giant) {
+                this.archer_giant = undefined
+            } else if (unit == this.warrior_giant) {
+                this.warrior_giant = undefined
+            }
+            return true
+        }
+        return false
+    }
+
+    run() {
+        super.run()
+        if (this.unit_list.length == 0) {
+            return
+        }
+
+        // tower attackEx as much as possible
+        for (let tower of this.tower_list) {
+            tower.attackEx()
+        }
+        let enemy_flag = this.game.flag_list.filter(f => !f.my)
+        enemy_flag = this.warrior_giant.findClosestByPath(enemy_flag)
+        // warrior giant, target the enemy flag, rush
+        {
+            if (!this.warrior_giant.exists) {
+                for (let w of this.warrior_list) {
+                    if (w.exists) {
+                        this.warrior_giant = w
+                        break
+                    }
+                }
+            }
+            if (this.warrior_giant.exists) {
+                this.warrior_giant.moveTo(enemy_flag)
+                let enemy_in_range = this.warrior_giant.findInRange(this.game.enemy_list, 1)
+                if (enemy_in_range.length > 0) {
+                    this.warrior_giant.attack(enemy_in_range[0])
+                }
+            }
+        }
+
+        // archer giant
+        {
+            if (!this.archer_giant.exists) {
+                for (let a of this.archer_list) {
+                    if (a.exists) {
+                        this.archer_giant = a
+                        break
+                    }
+                }
+            }
+            if (this.archer_giant.exists) {
+                let enemy_in_range = this.archer_giant.findInRange(this.game.enemy_list, 3)
+                if (enemy_in_range.length > 0) {
+                    this.archer_giant.hitAndRun(enemy_in_range[0])
+                } else {
+                    this.archer_giant.patrol(enemy_flag, 8)
+                }
+            }
+        }
+
+        // other warriors/archers patrol warrior giant or archer giant
+        {
+            for (let w of this.warrior_list) {
+                if (w == this.warrior_giant)
+                    continue
+                if (w.exists) {
+                    if (this.warrior_giant.exists)
+                        w.patrol(this.warrior_giant, 8)
+                    else if (this.archer_giant.exists)
+                        w.patrol(this.archer_giant, 8)
+                }
+            }
+
+            for (let a of this.archer_list) {
+                if (a == this.archer_giant)
+                    continue
+                if (a.exists) {
+                    if (this.archer_giant.exists)
+                        a.patrol(this.archer_giant, 8)
+                    else if (this.warrior_giant.exists)
+                        a.patrol(this.warrior_giant, 8)
+                }
+            }
+        }
+
+        // healers, follow giant
+        {
+            for (let h of this.healer_list) {
+                if (h.exists) {
+                    if (this.warrior_giant.exists)
+                        h.patrol(this.warrior_giant, 8)
+                    else if (this.archer_giant.exists)
+                        h.patrol(this.archer_giant, 8)
+                }
+            }
+        }
+
+    }
+
 
 
 }
@@ -378,4 +530,4 @@ class GroupAllCreeps extends ArenaGroup {
     }
 }
 
-export {GroupAllCreeps, GroupSeeker, GroupGuard}
+export {GroupAllCreeps, GroupSeeker, GroupGuard, GroupRush}
