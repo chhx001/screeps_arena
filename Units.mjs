@@ -22,33 +22,6 @@ class ArenaUnitExt extends Creep {
         return ret
     }
 
-    attackEx(obj) {
-        //if hit point < 50%, heal it self instead of shoot.
-        let ret = ERR_NO_BODYPART
-        if (this.hits < this.hitsMax * 0.5) {
-            ret = this.heal(this)
-        }
-        // if we can't self heal
-        if (ret != OK) {
-            let distance = this.getRangeTo(obj)
-            // 1. try ranged attack
-            let ret = this.rangedAttack(obj)
-            if (ret == ERR_NOT_IN_RANGE && distance == 4) {
-                // it means we can ranged attack, but enemy is too far. See if we can reach the range by 1 step, if not, heal
-                return ret
-            } else if (ret == ERR_NO_BODYPART) {
-                // it can't ranged attack, then try melee attack
-                ret = this.attack(obj)
-                if (ret == ERR_NOT_IN_RANGE && distance == 2) {
-                    return ret
-                }
-            }
-            // attack can't reach, heal
-            ret = this.heal(this)
-        }
-        return ret
-    }
-
     fleeFrom(obj, distance = 4) {
         if (Array.isArray(obj)) {
             obj = obj.map(o => {return {pos: o, range: distance}})
@@ -62,6 +35,19 @@ class ArenaUnitExt extends Creep {
         }
     }
 
+    keepSafe(range = 3, limit = 0.5) {
+        if (this.hits < this.hitsMax * limit) {
+            return false
+        }
+        let enemy_list = this.findInRange(this.game.getEnemyList(), range)
+        if (enemy_list.length > 0) {
+            this.fleeFrom(enemy_list)
+            return true
+        } else {
+            return false
+        }
+    }
+
     supplyTower(tower) {
         error(`${this.unit_type} ${this.id} does not support supplyTower() please check`)
     }
@@ -69,6 +55,10 @@ class ArenaUnitExt extends Creep {
     // patrol around an object with range
     patrol(obj, range) {
         error(`${this.unit_type} ${this.id} does not support patrol() please check`)
+    }
+
+    evaulate() {
+        error(`${this.unit_type} ${this.id} does not support evaulate() please check`)
     }
 
     static addFunctions(obj) {
@@ -126,21 +116,29 @@ class Farmer extends ArenaUnitExt {
 
     supplyTower(tower) {
         debug(`Farmer ${this.id} start to supply tower ${tower.id}`)
-        if (tower.exists) {
-            if (this.store.getUsedCapacity(RESOURCE_ENERGY) < 10) {
-                if (this.target == undefined || !(this.target instanceof StructureContainer)) {
-                    this.target = tower.findClosestByRange(this.game.container_list)
+
+        // trick, if tower is mine and this can transfer to tower, do it
+        if (tower.exists && this.exists && getRange(this, tower) <= 1 && this.store.getUsedCapacity(RESOURCE_ENERGY) >= 10) {
+            this.transfer(tower, RESOURCE_ENERGY)
+        }
+
+        if (!this.keepSafe()) {
+            if (tower.exists && this.exists) {
+                if (this.store.getUsedCapacity(RESOURCE_ENERGY) < 10) {
+                    if (this.target == undefined || !(this.target instanceof StructureContainer)) {
+                        this.target = tower.findClosestByRange(this.game.container_list)
+                    }
+                    if (this.withdraw(this.target, RESOURCE_ENERGY) != ERR_NOT_IN_RANGE) {
+                        return
+                    }
+                } else if (this.store.getUsedCapacity(RESOURCE_ENERGY) >= 10){
+                    this.target = tower
+                    if (this.transfer(this.target, RESOURCE_ENERGY) != ERR_NOT_IN_RANGE) {
+                        return
+                    }
                 }
-                if (this.withdraw(this.target, RESOURCE_ENERGY) != ERR_NOT_IN_RANGE) {
-                    return
-                }
-            } else if (this.store.getUsedCapacity(RESOURCE_ENERGY) >= 10){
-                this.target = tower
-                if (this.transfer(this.target, RESOURCE_ENERGY) != ERR_NOT_IN_RANGE) {
-                    return
-                }
+                this.moveTo(this.target)
             }
-            this.moveTo(this.target)
         }
     }
 
@@ -149,7 +147,7 @@ class Farmer extends ArenaUnitExt {
     }
 
     static match(obj, game) {
-        if (!(obj instanceof Creep) || obj.ready == true)
+        if (!(obj instanceof Creep) || obj.ready == true || !obj.my)
             return null;
         let body_part = obj.body.filter(bp => bp.type == CARRY)
         if (body_part.length > 0) 
@@ -165,6 +163,33 @@ class Archer extends ArenaUnitExt {
         this.moveable = true
     }
 
+    attackEx(obj) {
+        //if hit point < 50%, heal it self instead of shoot.
+        let ret = ERR_NO_BODYPART
+        if (this.hits < this.hitsMax * 0.5) {
+            ret = this.heal(this)
+        }
+        // if we can't self heal
+        if (ret != OK) {
+            let distance = this.getRangeTo(obj)
+            // 1. try ranged attack
+            let ret = this.rangedAttack(obj)
+            if (ret == ERR_NOT_IN_RANGE && distance == 4) {
+                // it means we can ranged attack, but enemy is too far. See if we can reach the range by 1 step, if not, heal
+                return ret
+            } else if (ret == ERR_NO_BODYPART) {
+                // it can't ranged attack, then try melee attack
+                ret = this.attack(obj)
+                if (ret == ERR_NOT_IN_RANGE && distance == 2) {
+                    return ret
+                }
+            }
+            // attack can't reach, heal
+            ret = this.heal(this)
+        }
+        return ret
+    }
+
     hitAndRun(obj) {
         if (this.moveable == false || this.range <= 1)
             return false
@@ -172,7 +197,7 @@ class Archer extends ArenaUnitExt {
             Policy 0: if there no enemies within 2, move close and shoot
             Policy 1: if there is enemies within 2, leave enemy and shoot
         */
-        let enemies_in_range = findInRange(this, this.game.enemy_list, this.range)
+        let enemies_in_range = findInRange(this, this.game.getEnemyList(), this.range)
         let policy = 0
         if (enemies_in_range.length > 0) {
             policy = 0
@@ -197,10 +222,10 @@ class Archer extends ArenaUnitExt {
     }
 
     patrol(obj, range) {
-        let enemy_list = obj.findInRange(this.game.enemy_list, range) 
+        let enemy_list = obj.findInRange(this.game.getEnemyList(), range) 
         if (enemy_list.length > 0) {
-            let enemy = this.findClosestByRange(enemy_list)
-            this.hitAndRun(enemy)
+            //let enemy = this.findClosestByRange(enemy_list)
+            this.hitAndRun(enemy_list[0])
         } else {
             // no enemy, move to target
             this.moveTo(obj)
@@ -213,7 +238,7 @@ class Archer extends ArenaUnitExt {
     }
 
     static match(obj, game) {
-        if (!(obj instanceof Creep) || obj.ready == true)
+        if (!(obj instanceof Creep) || obj.ready == true || !obj.my)
             return null;
         let body_part = obj.body.filter(bp => bp.type == RANGED_ATTACK)
         if (body_part.length > 0) 
@@ -246,12 +271,18 @@ class Healer extends Archer {
             let injured = obj.findInRange(this.game.creep_list, range).filter(c => c.hits < c.hitsMax)
             if (injured.length > 0) {
                 injured = this.findClosestByRange(injured)
-                this.heal(injured)
                 if (getRange(this, injured) > 1) {
+                    this.rangedHeal(injured)
+                } else {
+                    this.heal(injured)
+                }
+                if (!this.keepSafe(2)) {
                     this.moveTo(injured)
                 }
             } else {
-                this.moveTo(obj)
+                if (!this.keepSafe(2)) {
+                    this.moveTo(obj)
+                }
             }
         }
         
@@ -264,7 +295,7 @@ class Healer extends Archer {
     }
 
     static match(obj, game) {
-        if (!(obj instanceof Creep) || obj.ready == true)
+        if (!(obj instanceof Creep) || obj.ready == true || !obj.my)
             return null;
         let body_part = obj.body.filter(bp => bp.type == HEAL)
         if (body_part.length > 0) 
@@ -280,7 +311,7 @@ class Warrior extends ArenaUnitExt {
     }
 
     patrol(obj, range) {
-        let enemy_list = obj.findInRange(this.game.enemy_list, range) 
+        let enemy_list = obj.findInRange(this.game.getEnemyList(), range) 
         if (enemy_list.length > 0) {
             let enemy = this.findClosestByRange(enemy_list)
             this.attack(enemy)
@@ -296,7 +327,7 @@ class Warrior extends ArenaUnitExt {
     }
 
     static match(obj, game) {
-        if (!(obj instanceof Creep) || obj.ready == true)
+        if (!(obj instanceof Creep) || obj.ready == true || !obj.my)
             return null;
         let body_part = obj.body.filter(bp => bp.type == ATTACK)
         if (body_part.length > 0) 
@@ -315,12 +346,13 @@ class Tower extends ArenaUnitExt {
     attackEx(obj) {
         let enemy = obj
         if (!enemy)
-            enemy = this.findClosestByRange(this.game.enemy_list)
+            enemy = this.findInRange(this.game.getEnemyList(), this.range)
         let ret = OK
-        ret = this.attack(enemy)
-        if (ret == ERR_NOT_IN_RANGE) {
+        if (enemy.length > 0)
+            ret = this.attack(enemy[0])
+        if (ret != OK) {
             // try heal
-            let injured = this.game.creep_list.filter(c => c.hits < c.hitsMax)
+            let injured = this.game.creep_list.filter(c => c.hits < c.hitsMax).sort((a, b) => ((b.hitsMax - b.hits) - (a.hitsMax - a.hits)))
             injured = this.findInRange(injured, this.range)
             if (injured.length > 0) {
                 ret = this.heal(injured[0])
@@ -331,7 +363,7 @@ class Tower extends ArenaUnitExt {
 
     static addVariables(obj) {
         super.addVariables(obj)
-        this.moveable = false;
+        obj.moveable = false;
         obj.range = 20
     }
 
@@ -342,5 +374,55 @@ class Tower extends ArenaUnitExt {
     }
 }
 
+class Enemy extends ArenaUnitExt {
+    constructor(game) {
+        super(game)
+        this.range = 0
+        this.value = 0
+    }
 
-export {Farmer, Warrior, Archer, Healer, Tower}
+    evaulate() {
+        // HEAL: 30 pt
+        // RANGED_ATTACK: 20pt
+        // ATTACK: 10pt
+        // CARRY: 5pt
+        // MOVE: 1pt
+        if (this.exists) {
+            this.value = 0
+            for (let bp of this.body) {
+                if (bp.hits == 0) {
+                    continue
+                }
+                if (bp.type == HEAL)
+                    this.value += 30
+                else if (bp.type == RANGED_ATTACK)
+                    this.value += 20
+                else if (bp.type == ATTACK)
+                    this.value += 10
+                else if (bp.type == CARRY)
+                    this.value += 5
+                else if (bp.type == MOVE)
+                    this.value += 1
+            }
+        } else {
+            this.value = 0
+        }
+    }
+
+    static addVariables(obj) {
+        super.addVariables(obj)
+        obj.moveable = false;
+        obj.range = 0
+        obj.value = 10
+    }
+
+    static match(obj, game) {
+        if (!(obj instanceof Creep) || obj.ready == true || obj.my)
+            return null;
+
+        return ArenaUnitExt.mixIn(obj, game, this)
+    }
+}
+
+
+export {Farmer, Warrior, Archer, Healer, Tower, Enemy}

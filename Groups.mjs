@@ -1,6 +1,6 @@
 import { getObjectsByPrototype, getTicks } from "game/utils";
 import { ArenaBase } from "./Base.mjs";
-import { Archer, Farmer, Healer, Tower, Warrior } from "./Units.mjs";
+import { Archer, Enemy, Farmer, Healer, Tower, Warrior } from "./Units.mjs";
 import { Flag } from "game/prototypes/flag";
 import { debug, error, info, warn } from "./Utils.mjs";
 import { RANGED_ATTACK, ATTACK, ERR_NO_BODYPART, ERR_NOT_IN_RANGE, findClosestByPath, getRange, RESOURCE_ENERGY, StructureContainer, HEAL, MOVE, StructureTower, Creep } from "game";
@@ -16,6 +16,10 @@ class ArenaGroup extends ArenaBase {
         this.archer_list = []
         this.farmer_list = []
         this.tower_list = []
+    }
+
+    getUnitList() {
+        return this.unit_list
     }
 
     isFull() {
@@ -107,7 +111,7 @@ class ArenaGroup extends ArenaBase {
 class GroupGuard extends ArenaGroup {
     constructor(game) {
         super(game)
-        this.design_list = [Warrior, Warrior, Warrior, Healer, Healer, Farmer, Tower]
+        this.design_list = [Warrior, Warrior, Healer, Healer, Farmer, Tower]
         this.warrior_list = []
         this.healer_list = []
         this.archer_list = []
@@ -209,7 +213,7 @@ class GroupSeeker extends ArenaGroup {
     constructor(game) {
         super(game)
         // Seeker, 1 WARRIOR, 1 ARCHER, 1 HEALER, 1 Farmer
-        this.design_list = [Warrior, Archer, Archer, Archer, Archer, Healer, Healer, Farmer, Tower]
+        this.design_list = [Warrior, Warrior, Archer, Archer, Archer, Archer, Healer, Healer, Farmer, Tower]
         this.flag = undefined
         this.tower = undefined
     }
@@ -380,15 +384,15 @@ class GroupRush extends ArenaGroup {
             return false
         if (unit.ready == undefined)
             return false
-        if (unit.unit_type == Farmer.name || unit.unit_type == Tower.name) {
-            return false    // do not need farmer
+        if (unit.unit_type == Farmer.name || unit.unit_type == Tower.name || unit.unit_type == Enemy.name) {
+            return false    // do not need farmer, tower and enemies
         }
         return true
     }
 
     addUnit(unit) {
         if (super.addUnit(unit)) {
-            if ((unit instanceof Creep) && unit.body.length > 12) {
+            if ((unit instanceof Creep) && unit.exists && unit.body.length > 12) {
                 if (unit.unit_type == Archer.name) {
                     this.archer_giant = unit
                 } else if (unit.unit_type == Warrior.name) {
@@ -422,11 +426,10 @@ class GroupRush extends ArenaGroup {
         for (let tower of this.tower_list) {
             tower.attackEx()
         }
-        let enemy_flag = this.game.flag_list.filter(f => !f.my)
-        enemy_flag = this.warrior_giant.findClosestByPath(enemy_flag)
+        let enemy_flag
         // warrior giant, target the enemy flag, rush
         {
-            if (!this.warrior_giant.exists) {
+            if (!this.warrior_giant || !this.warrior_giant.exists) {
                 for (let w of this.warrior_list) {
                     if (w.exists) {
                         this.warrior_giant = w
@@ -435,8 +438,9 @@ class GroupRush extends ArenaGroup {
                 }
             }
             if (this.warrior_giant.exists) {
+                enemy_flag = this.warrior_giant.findClosestByPath(this.game.flag_list.filter(f => !f.my))
                 this.warrior_giant.moveTo(enemy_flag)
-                let enemy_in_range = this.warrior_giant.findInRange(this.game.enemy_list, 1)
+                let enemy_in_range = this.warrior_giant.findInRange(this.game.getEnemyList(), 1)
                 if (enemy_in_range.length > 0) {
                     this.warrior_giant.attack(enemy_in_range[0])
                 }
@@ -445,7 +449,7 @@ class GroupRush extends ArenaGroup {
 
         // archer giant
         {
-            if (!this.archer_giant.exists) {
+            if (!this.archer_giant || !this.archer_giant.exists) {
                 for (let a of this.archer_list) {
                     if (a.exists) {
                         this.archer_giant = a
@@ -454,7 +458,8 @@ class GroupRush extends ArenaGroup {
                 }
             }
             if (this.archer_giant.exists) {
-                let enemy_in_range = this.archer_giant.findInRange(this.game.enemy_list, 3)
+                enemy_flag = this.archer_giant.findClosestByPath(this.game.flag_list.filter(f => !f.my))
+                let enemy_in_range = this.archer_giant.findInRange(this.game.getEnemyList(), 3)
                 if (enemy_in_range.length > 0) {
                     this.archer_giant.hitAndRun(enemy_in_range[0])
                 } else {
@@ -499,11 +504,40 @@ class GroupRush extends ArenaGroup {
                 }
             }
         }
+    }
+}
 
+class GroupEnemy extends ArenaGroup {
+    constructor(game) {
+        super(game)
     }
 
+    // need any group
+    needUnit(unit) {
+        if (unit.group != undefined || unit.ready == undefined || unit.my)    // it has group already
+            return false
+        return true
+    }
 
+    run() {
+        super.run()
+        for (let unit of this.unit_list) {
+            unit.evaulate()
+        }
+        this.unit_list.sort((a, b) => (b.value - a.value))
 
+        // clean up those dead
+        for (let i = this.unit_list.length - 1; i >= 0; i --) {
+            if (!this.unit_list[i].exists) {
+                this.unit_list.splice(i, 1)
+            }
+        }
+
+        // Debug print
+        for (let unit of this.unit_list) {
+            debug(`${unit.unit_type} ${unit.id} value: ${unit.value}`)
+        }
+    }
 }
 
 // Test Group, just rush to the base
@@ -530,4 +564,4 @@ class GroupAllCreeps extends ArenaGroup {
     }
 }
 
-export {GroupAllCreeps, GroupSeeker, GroupGuard, GroupRush}
+export {GroupAllCreeps, GroupSeeker, GroupGuard, GroupRush, GroupEnemy}

@@ -1,4 +1,4 @@
-import { Archer, Farmer, Healer, Tower, Warrior } from './Units.mjs'
+import { Archer, Enemy, Farmer, Healer, Tower, Warrior } from './Units.mjs'
 
 function debug(...args) {
     console.log("[DEBUG] ", ...args)
@@ -20,7 +20,7 @@ class ArenaUtils {
     static match(obj, game) {
         if (obj.ready == true)
             return
-        let unit_type = [Farmer, Archer, Warrior, Healer, Tower]
+        let unit_type = [Farmer, Archer, Warrior, Healer, Tower, Enemy]
         for (let ut of unit_type) {
             if (ut.match(obj, game) != null) {
                 info("Creep " + obj.id + " matched type " + ut.name)

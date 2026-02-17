@@ -1,7 +1,7 @@
 import {getObjectsByPrototype} from 'game/utils';
 import {Creep, Flag, StructureContainer, StructureTower} from 'game/prototypes';
 import { ArenaUtils } from './Utils.mjs';
-import { GroupAllCreeps, GroupGuard, GroupRush, GroupSeeker } from './Groups.mjs';
+import { GroupAllCreeps, GroupEnemy, GroupGuard, GroupRush, GroupSeeker } from './Groups.mjs';
 import { getTicks } from 'game';
 
 class MyGame {
@@ -28,11 +28,14 @@ class MyGame {
         this.group_list.push(new GroupSeeker(this))
         this.group_list.push(new GroupGuard(this))
 
+        this.enemy_group = new GroupEnemy(this)
+        this.group_list.push(this.enemy_group)
+
         this.enemy_list = getObjectsByPrototype(Creep).filter(c => !c.my)
         this.creep_list = getObjectsByPrototype(Creep).filter(c => c.my)
 
-        let my_creeps = getObjectsByPrototype(Creep).filter(object => object.my);
-        for (let creep of my_creeps) {
+        let creeps = getObjectsByPrototype(Creep);
+        for (let creep of creeps) {
             ArenaUtils.match(creep, this)
             for (let group of this.group_list) {
                 group.addUnit(creep)
@@ -47,6 +50,10 @@ class MyGame {
     scan() {
         this.enemy_list = getObjectsByPrototype(Creep).filter(c => !c.my)
         this.creep_list = getObjectsByPrototype(Creep).filter(c => c.my)
+    }
+
+    getEnemyList() {
+        return this.enemy_group.getUnitList()
     }
 
     test() {
