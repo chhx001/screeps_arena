@@ -57,8 +57,8 @@ class ArenaUnitExt extends Creep {
         error(`${this.unit_type} ${this.id} does not support patrol() please check`)
     }
 
-    evaulate() {
-        error(`${this.unit_type} ${this.id} does not support evaulate() please check`)
+    evaluate() {
+        error(`${this.unit_type} ${this.id} does not support evaluate() please check`)
     }
 
     static addFunctions(obj) {
@@ -194,13 +194,14 @@ class Archer extends ArenaUnitExt {
         if (this.moveable == false || this.range <= 1)
             return false
         /* detect the enemies within this.range
-            Policy 0: if there no enemies within 2, move close and shoot
-            Policy 1: if there is enemies within 2, leave enemy and shoot
+            Policy 0: if there no enemies within this.range, move close and shoot
+            Policy 1: if there is enemies within (this.range - 1), leave enemy and shoot
+            Policy 2: if there is enemies within (this.range), stop and shoot
         */
         let enemies_in_range = findInRange(this, this.game.getEnemyList(), this.range)
         let policy = 0
         if (enemies_in_range.length > 0) {
-            policy = 0
+            policy = 2
             for (let e of enemies_in_range) {
                 let r = getRange(this, e)
                 if (r <= this.range - 1) {
@@ -218,6 +219,8 @@ class Archer extends ArenaUnitExt {
         } else if (policy == 1) {
             this.attackEx(obj)
             this.fleeFrom(obj)
+        } else if (policy == 2){
+            this.attackEx(obj)
         }
     }
 
@@ -324,6 +327,7 @@ class Warrior extends ArenaUnitExt {
 
     static addVariables(obj) {
         super.addVariables(obj)
+        obj.range = 1
     }
 
     static match(obj, game) {
@@ -345,8 +349,12 @@ class Tower extends ArenaUnitExt {
 
     attackEx(obj) {
         let enemy = obj
-        if (!enemy)
+        if (!enemy) {
             enemy = this.findInRange(this.game.getEnemyList(), this.range)
+            // sort by range
+            enemy.map((a) => a.value + this.getRangeTo(a))
+            enemy.sort((a, b) => b.value - a.value)
+        }
         let ret = OK
         if (enemy.length > 0)
             ret = this.attack(enemy[0])
@@ -381,8 +389,8 @@ class Enemy extends ArenaUnitExt {
         this.value = 0
     }
 
-    evaulate() {
-        // HEAL: 30 pt
+    evaluate() {
+        // HEAL: 30 pt, 
         // RANGED_ATTACK: 20pt
         // ATTACK: 10pt
         // CARRY: 5pt
@@ -390,17 +398,14 @@ class Enemy extends ArenaUnitExt {
         if (this.exists) {
             this.value = 0
             for (let bp of this.body) {
-                if (bp.hits == 0) {
-                    continue
-                }
                 if (bp.type == HEAL)
-                    this.value += 30
+                    this.value += (bp.hits) ? 30 : 20;
                 else if (bp.type == RANGED_ATTACK)
-                    this.value += 20
+                    this.value += (bp.hits) ? 20 : 5;
                 else if (bp.type == ATTACK)
-                    this.value += 10
+                    this.value += (bp.hits) ? 10 : 5;
                 else if (bp.type == CARRY)
-                    this.value += 5
+                    this.value += (bp.hits) ? 5 : 0
                 else if (bp.type == MOVE)
                     this.value += 1
             }

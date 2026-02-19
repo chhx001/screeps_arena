@@ -45,6 +45,8 @@ class MyGame {
         for (let tower of this.tower_list) {
             ArenaUtils.match(tower, this)
         }
+
+        this.ruined_group = 0
     }
 
     scan() {
@@ -52,8 +54,8 @@ class MyGame {
         this.creep_list = getObjectsByPrototype(Creep).filter(c => c.my)
     }
 
-    getEnemyList() {
-        return this.enemy_group.getUnitList()
+    getEnemyList(sort_fun = undefined) {
+        return this.enemy_group.getUnitList(sort_fun)
     }
 
     test() {

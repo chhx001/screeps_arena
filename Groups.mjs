@@ -3,7 +3,7 @@ import { ArenaBase } from "./Base.mjs";
 import { Archer, Enemy, Farmer, Healer, Tower, Warrior } from "./Units.mjs";
 import { Flag } from "game/prototypes/flag";
 import { debug, error, info, warn } from "./Utils.mjs";
-import { RANGED_ATTACK, ATTACK, ERR_NO_BODYPART, ERR_NOT_IN_RANGE, findClosestByPath, getRange, RESOURCE_ENERGY, StructureContainer, HEAL, MOVE, StructureTower, Creep } from "game";
+import { RANGED_ATTACK, ATTACK, ERR_NO_BODYPART, ERR_NOT_IN_RANGE, findClosestByPath, getRange, RESOURCE_ENERGY, StructureContainer, HEAL, MOVE, StructureTower, Creep, findInRange } from "game";
 import { BodyPart } from "arena/season_2/capture_the_flag/basic/prototypes";
 
 class ArenaGroup extends ArenaBase {
@@ -16,10 +16,15 @@ class ArenaGroup extends ArenaBase {
         this.archer_list = []
         this.farmer_list = []
         this.tower_list = []
+        this.ruined = false
     }
 
-    getUnitList() {
-        return this.unit_list
+    getUnitList(sort_fun = undefined) {
+        let sorted = this.unit_list
+        if (sort_fun) {
+            sorted = [...this.unit_list].sort(sort_fun)
+        }
+        return sorted
     }
 
     isFull() {
@@ -111,7 +116,7 @@ class ArenaGroup extends ArenaBase {
 class GroupGuard extends ArenaGroup {
     constructor(game) {
         super(game)
-        this.design_list = [Warrior, Warrior, Healer, Healer, Farmer, Tower]
+        this.design_list = [Farmer, Tower]
         this.warrior_list = []
         this.healer_list = []
         this.archer_list = []
@@ -146,7 +151,10 @@ class GroupGuard extends ArenaGroup {
     }
 
     run() {
+        let base_flag = this.game.base_flag
         super.run()
+        
+
         if (this.unit_list.length == 0) {
             return
         }
@@ -157,13 +165,26 @@ class GroupGuard extends ArenaGroup {
         if (this.tower.exists) {
             this.tower.attackEx()
         }
+
+        if (this.ruined) {
+            return
+        }
+
+        if (this.unit_list.length < 2) {
+            this.ruined = true
+            this.game.ruined_group ++
+        }
         
         // farmer maintain the base tower
         if (this.farmer.exists && this.tower.exists) {
             this.farmer.supplyTower(this.tower)
+            if (this.unit_list.length <= 2) {   // if only farmer and tower, then farmer is the protector, move to flag if it can energy
+                if (this.farmer.store.getUsedCapacity(RESOURCE_ENERGY) > 10) {
+                    this.farmer.moveTo(base_flag)
+                }
+            }
         }
-
-        let base_flag = this.game.base_flag
+        
         // warrior patrol and attack enemies around the flag
         for (let c of this.warrior_list) {
             if (c.exists) {
@@ -213,7 +234,7 @@ class GroupSeeker extends ArenaGroup {
     constructor(game) {
         super(game)
         // Seeker, 1 WARRIOR, 1 ARCHER, 1 HEALER, 1 Farmer
-        this.design_list = [Warrior, Warrior, Archer, Archer, Archer, Archer, Healer, Healer, Farmer, Tower]
+        this.design_list = [Warrior, Warrior, Archer, Archer, Archer, Archer, Healer, Healer,Warrior, Warrior, Healer, Healer, Farmer, Tower]
         this.flag = undefined
         this.tower = undefined
     }
@@ -273,6 +294,11 @@ class GroupSeeker extends ArenaGroup {
         info(`Seeker, flag ${this.flag.id}, my: ${this.flag.my}, farmer: ${this.farmer.id}`)
         if (this.flag.my == undefined || !this.flag.my) {
             this.farmer.moveTo(this.flag)
+        } else if (this.flag.findInRange(this.game.getEnemyList(), 8).length > 0) {
+            this.farmer.moveTo(this.flag)
+            if (getRange(this.tower, this.farmer) <= 1) {
+                this.farmer.transfer(this.tower, RESOURCE_ENERGY)
+            }
         } else {
             this.farmer.supplyTower(this.tower)
         }
@@ -290,60 +316,67 @@ class GroupSeeker extends ArenaGroup {
                     c.move_speed += 1
             }
         }
-        // pick
-        let body_parts = getObjectsByPrototype(BodyPart)
+
         let picker = undefined
-        body_parts = this.flag.findInRange(body_parts, 15)
-        for (let bp of body_parts) {
-            picker = undefined
-            if (bp["picker"] != undefined && bp["picker"].exists) {
-                bp["picker"].moveTo(bp)
-                continue
-            }
-            if (bp.type == ATTACK) {
-                // no one like this except warrior
-                picker = this.picker_alive(this.warrior_list)
-            } else if (bp.type == MOVE){
-                // let's see if warrior_giant or archer_giant who need this more
-                // check archer first, archer has higher priority
-                let archer_giant = this.picker_alive(this.archer_list)
-                let warrior_giant = this.picker_alive(this.warrior_list)
-                if (archer_giant && archer_giant.move_speed < 0) {
-                    picker = archer_giant
-                } else if (warrior_giant && warrior_giant.move_speed < 0) {
-                    picker = warrior_giant
-                } else {
-                    picker = (archer_giant) ? archer_giant : warrior_giant;
+        // pick, works only if not in combat
+        if (this.flag.findInRange(this.game.getEnemyList(), 15).length == 0) {
+            let body_parts = getObjectsByPrototype(BodyPart)
+            body_parts = this.flag.findInRange(body_parts, 15)
+            for (let bp of body_parts) {
+                picker = undefined
+                if (bp["picker"] != undefined && bp["picker"].exists) {
+                    bp["picker"].moveTo(bp)
+                    continue
                 }
-            } else {
-                // others are all give to the first archer
-                picker = this.picker_alive(this.archer_list)
-            }
-            if (picker) {
-                picker.target = bp
-                bp["picker"] = picker
-                picker.moveTo(bp)
+                if (bp.type == ATTACK) {
+                    // no one like this except warrior
+                    picker = this.picker_alive(this.warrior_list)
+                } else if (bp.type == MOVE){
+                    // let's see if warrior_giant or archer_giant who need this more
+                    // check archer first, archer has higher priority
+                    let archer_giant = this.picker_alive(this.archer_list)
+                    let warrior_giant = this.picker_alive(this.warrior_list)
+                    if (archer_giant && archer_giant.move_speed < 0) {
+                        picker = archer_giant
+                    } else if (warrior_giant && warrior_giant.move_speed < 0) {
+                        picker = warrior_giant
+                    } else {
+                        picker = (archer_giant) ? archer_giant : warrior_giant;
+                    }
+                } else {
+                    // others are all give to the first archer
+                    picker = this.picker_alive(this.archer_list)
+                }
+                if (picker) {
+                    picker.target = bp
+                    bp["picker"] = picker
+                    picker.moveTo(bp)
+                }
             }
         }
 
         // warrior, which is not picking parts, patrol the flag
         for (let c of this.warrior_list) {
             if (c.exists && (c.target == undefined || !c.target.exists)) {
-                c.patrol(this.flag, 8)
+                c.patrol(this.flag, 13)
+            } else if (c.exists && c.target.exists){
+                c.moveTo(c.target)
             }
         }
 
         // archer, which is not picking parts, patrol the flag
         for (let c of this.archer_list) {
             if (c.exists && (c.target == undefined || !c.target.exists)) {
-                c.patrol(this.flag, 8)
+                c.patrol(this.flag, 13)
+            }  else if (c.exists && c.target.exists){
+                c.moveTo(c.target)
             }
         }
 
         // healer, which is not picking parts, patrol the flag
         for (let c of this.healer_list) {
             if (c.exists && (c.target == undefined || !c.target.exists)) {
-                c.patrol(this.flag, 8)
+                c.patrol(this.flag, 13)
             }
         }
         
@@ -437,7 +470,7 @@ class GroupRush extends ArenaGroup {
                     }
                 }
             }
-            if (this.warrior_giant.exists) {
+            if (this.warrior_giant && this.warrior_giant.exists) {
                 enemy_flag = this.warrior_giant.findClosestByPath(this.game.flag_list.filter(f => !f.my))
                 this.warrior_giant.moveTo(enemy_flag)
                 let enemy_in_range = this.warrior_giant.findInRange(this.game.getEnemyList(), 1)
@@ -457,7 +490,7 @@ class GroupRush extends ArenaGroup {
                     }
                 }
             }
-            if (this.archer_giant.exists) {
+            if (this.archer_giant && this.archer_giant.exists) {
                 enemy_flag = this.archer_giant.findClosestByPath(this.game.flag_list.filter(f => !f.my))
                 let enemy_in_range = this.archer_giant.findInRange(this.game.getEnemyList(), 3)
                 if (enemy_in_range.length > 0) {
@@ -519,10 +552,12 @@ class GroupEnemy extends ArenaGroup {
         return true
     }
 
+    e
+
     run() {
         super.run()
         for (let unit of this.unit_list) {
-            unit.evaulate()
+            unit.evaluate()
         }
         this.unit_list.sort((a, b) => (b.value - a.value))
 
